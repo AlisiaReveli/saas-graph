@@ -1,0 +1,102 @@
+tables:
+  patients:
+    description: "Patient demographic and admission records"
+    columns:
+      patient_id: { type: integer, description: "Unique patient identifier" }
+      name: { type: text, description: "Patient full name" }
+      date_of_birth: { type: date, description: "Date of birth" }
+      gender: { type: text, description: "Gender (M/F/Other)" }
+      ward: { type: text, description: "Current ward assignment (A, B, ICU, ER)" }
+      admitted_at: { type: timestamp, description: "Admission date and time" }
+      discharged_at: { type: timestamp, description: "Discharge date (NULL if still admitted)" }
+      diagnosis_code: { type: text, description: "Primary ICD-10 diagnosis code" }
+      diagnosis_description: { type: text, description: "Human-readable diagnosis" }
+      attending_physician_id: { type: integer, description: "FK to physicians table" }
+      insurance_provider: { type: text, description: "Insurance company name" }
+      patient_type: { type: text, description: "REAL or TEST" }
+    aliases:
+      - { name: "admitted patients", filter: "discharged_at IS NULL" }
+      - { name: "discharged patients", filter: "discharged_at IS NOT NULL" }
+      - { name: "ICU patients", filter: "ward = 'ICU'" }
+      - { name: "ER patients", filter: "ward = 'ER'" }
+
+  physicians:
+    description: "Physician/doctor records"
+    columns:
+      physician_id: { type: integer, description: "Unique physician identifier" }
+      name: { type: text, description: "Physician full name" }
+      specialty: { type: text, description: "Medical specialty (Cardiology, Oncology, etc.)" }
+      department: { type: text, description: "Department name" }
+
+  prescriptions:
+    description: "Medication prescriptions linked to patients"
+    columns:
+      prescription_id: { type: integer, description: "Unique prescription ID" }
+      patient_id: { type: integer, description: "FK to patients" }
+      physician_id: { type: integer, description: "Prescribing physician FK" }
+      medication_name: { type: text, description: "Drug name" }
+      dosage: { type: text, description: "Dosage amount and unit" }
+      prescribed_at: { type: timestamp, description: "When prescribed" }
+      status: { type: text, description: "active, completed, cancelled" }
+    joins:
+      - { to: patients, on: "patient_id = patient_id", type: LEFT }
+      - { to: physicians, on: "physician_id = physician_id", type: LEFT }
+
+  billing:
+    description: "Patient billing and charges"
+    columns:
+      billing_id: { type: integer, description: "Unique billing record ID" }
+      patient_id: { type: integer, description: "FK to patients" }
+      service_date: { type: date, description: "Date of service" }
+      service_code: { type: text, description: "CPT procedure code" }
+      service_description: { type: text, description: "Description of service" }
+      amount: { type: numeric, description: "Charge amount in dollars" }
+      insurance_covered: { type: numeric, description: "Amount covered by insurance" }
+      patient_responsibility: { type: numeric, description: "Amount owed by patient" }
+      status: { type: text, description: "pending, paid, denied" }
+    joins:
+      - { to: patients, on: "patient_id = patient_id", type: LEFT }
+
+business_rules:
+  - name: exclude_test_patients
+    trigger_terms: [patients, admissions, discharges, prescriptions]
+    sql_condition: "patient_type != 'TEST'"
+    description: "Always exclude test/dummy patient records from queries"
+
+  - name: active_prescriptions
+    trigger_terms: [prescriptions, medications, drugs]
+    sql_condition: "status = 'active'"
+    description: "Default to active prescriptions unless specifically asked about all"
+
+golden_queries:
+  - name: monthly_admissions
+    question: "How many patients were admitted last month?"
+    sql: |
+      SELECT COUNT(*) as admission_count
+      FROM patients
+      WHERE admitted_at >= date_trunc('month', CURRENT_DATE - interval '1 month')
+        AND admitted_at < date_trunc('month', CURRENT_DATE)
+        AND patient_type != 'TEST'
+    tables: [patients]
+
+  - name: current_icu_patients
+    question: "How many patients are currently in the ICU?"
+    sql: |
+      SELECT COUNT(*) as icu_count
+      FROM patients
+      WHERE ward = 'ICU'
+        AND discharged_at IS NULL
+        AND patient_type != 'TEST'
+    tables: [patients]
+
+  - name: top_diagnoses
+    question: "What are the most common diagnoses this year?"
+    sql: |
+      SELECT diagnosis_description, COUNT(*) as patient_count
+      FROM patients
+      WHERE admitted_at >= date_trunc('year', CURRENT_DATE)
+        AND patient_type != 'TEST'
+      GROUP BY diagnosis_description
+      ORDER BY patient_count DESC
+      LIMIT 10
+    tables: [patients]

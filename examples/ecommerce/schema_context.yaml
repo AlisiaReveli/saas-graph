@@ -1,0 +1,66 @@
+tables:
+  products:
+    description: "Product catalog"
+    columns:
+      product_id: { type: integer, description: "Unique product ID" }
+      name: { type: text, description: "Product name" }
+      sku: { type: text, description: "Stock keeping unit" }
+      category: { type: text, description: "Product category" }
+      price: { type: numeric, description: "Current price in dollars" }
+      cost: { type: numeric, description: "Cost of goods" }
+      stock_quantity: { type: integer, description: "Current stock level" }
+      is_active: { type: boolean, description: "Whether product is listed" }
+
+  orders:
+    description: "Customer orders"
+    columns:
+      order_id: { type: integer, description: "Unique order ID" }
+      customer_id: { type: integer, description: "FK to customers" }
+      order_date: { type: timestamp, description: "When the order was placed" }
+      status: { type: text, description: "pending, shipped, delivered, returned" }
+      total_amount: { type: numeric, description: "Order total in dollars" }
+      shipping_cost: { type: numeric, description: "Shipping charges" }
+    joins:
+      - { to: customers, on: "customer_id = customer_id", type: LEFT }
+
+  order_items:
+    description: "Line items within orders"
+    columns:
+      item_id: { type: integer, description: "Unique line item ID" }
+      order_id: { type: integer, description: "FK to orders" }
+      product_id: { type: integer, description: "FK to products" }
+      quantity: { type: integer, description: "Quantity ordered" }
+      unit_price: { type: numeric, description: "Price at time of order" }
+      line_total: { type: numeric, description: "quantity * unit_price" }
+    joins:
+      - { to: orders, on: "order_id = order_id", type: LEFT }
+      - { to: products, on: "product_id = product_id", type: LEFT }
+
+  customers:
+    description: "Customer accounts"
+    columns:
+      customer_id: { type: integer, description: "Unique customer ID" }
+      name: { type: text, description: "Customer name" }
+      email: { type: text, description: "Email address" }
+      signup_date: { type: date, description: "Account creation date" }
+      lifetime_value: { type: numeric, description: "Total spend to date" }
+
+business_rules:
+  - name: exclude_cancelled
+    trigger_terms: [orders, revenue, sales]
+    sql_condition: "status != 'cancelled'"
+    description: "Exclude cancelled orders from revenue/sales metrics by default"
+
+golden_queries:
+  - name: top_products_by_revenue
+    question: "What are the top selling products by revenue?"
+    sql: |
+      SELECT p.name, SUM(oi.line_total) as revenue
+      FROM order_items oi
+      JOIN products p ON oi.product_id = p.product_id
+      JOIN orders o ON oi.order_id = o.order_id
+      WHERE o.status != 'cancelled'
+      GROUP BY p.name
+      ORDER BY revenue DESC
+      LIMIT 10
+    tables: [order_items, products, orders]
