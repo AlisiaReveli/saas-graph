@@ -116,11 +116,18 @@ class FormatterNode:
             emitter.emit_step("Formatting the response")
 
         try:
+            display_results = self._apply_display_names(query_results) if self.column_names else query_results
+            display_hint = None
+            if self.column_names:
+                display_hint = "Column display names: " + ", ".join(
+                    f"{k} -> {v}" for k, v in self.column_names.items()
+                )
             formatted = await self.llm.format_response(
                 query=user_query,
-                results=query_results,
+                results=display_results,
                 sql=sql,
                 display_format=display_format.value,
+                display_hint=display_hint,
             )
             formatted = self._append_sql(formatted, sql)
             return {
@@ -137,6 +144,15 @@ class FormatterNode:
                 "display_format": DisplayFormat.TABLE.value,
                 "current_node": "format_response",
             }
+
+    def _apply_display_names(self, results: list) -> list:
+        """Rename keys in result dicts to their display names."""
+        if not results or not self.column_names:
+            return results
+        return [
+            {self.column_names.get(k, k): v for k, v in row.items()}
+            for row in results
+        ]
 
     def _detect_format(self, results: list, query: str) -> DisplayFormat:
         if len(results) == 1 and len(results[0]) <= 3:

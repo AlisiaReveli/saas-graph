@@ -229,10 +229,7 @@ class NLQPipeline:
                 messages=messages or [],
             )
 
-            if hasattr(self._graph, "ainvoke"):
-                final_state = await self._graph.ainvoke(initial)
-            else:
-                final_state = await self._graph.ainvoke(initial)
+            final_state = await self._graph.ainvoke(initial)
 
             return self._to_result(final_state, sid)
         finally:
@@ -308,13 +305,16 @@ class _PassthroughSchemaLinker:
 
 
 class _DryRunExecutor:
-    """Stub executor that returns an error — used when no real executor is provided."""
+    """Stub executor for when no real database is configured.
+
+    Returns the generated SQL as a successful result so users can inspect it.
+    """
 
     async def __call__(self, state: AgentState) -> Dict[str, Any]:
         sql_spec = state.sql_spec if hasattr(state, "sql_spec") else state.get("sql_spec")
+        sql = sql_spec.sql if sql_spec else ""
         return {
-            "error": "No database executor configured (dry-run mode)",
-            "query_results": [],
+            "query_results": [{"generated_sql": sql}] if sql else [],
             "row_count": 0,
             "current_node": "execute_query",
         }
