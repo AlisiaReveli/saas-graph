@@ -1,5 +1,5 @@
 ## Demo
-![saas-graph demo](demo.mov)
+<video src="demo.mov" controls width="600"></video>
 
 
 # saas-graph
