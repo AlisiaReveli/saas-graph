@@ -1,5 +1,5 @@
 ## Demo
-[![saas-graph demo](demo-thumbnail.png)](demo.mp4)
+<video src="demo.mp4" poster="demo-thumbnail.png" controls width="600"></video>
 
 
 # saas-graph
