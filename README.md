@@ -1,5 +1,5 @@
 ## Demo
-![saas-graph demo](demo.gif)
+[![Watch the demo](demo-thumbnail.png)](https://github.com/AlisiaReveli/saas-graph/raw/main/demo.mp4)
 
 
 # saas-graph
