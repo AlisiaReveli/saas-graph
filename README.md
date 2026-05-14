@@ -1,5 +1,5 @@
 ## Demo
-![saas-graph demo](demo.gif)
+![saas-graph demo](demo.mov)
 
 
 # saas-graph
