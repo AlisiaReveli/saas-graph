@@ -81,7 +81,7 @@ class OpenAIGateway(ILLMGateway):
         raw = await self.complete(prompt, system_prompt=system, temperature=0.0)
 
         try:
-            data = json.loads(raw)
+            data = json.loads(self._strip_code_fence(raw))
         except json.JSONDecodeError:
             sql = self._extract_sql_from_text(raw)
             data = {"sql": sql, "explanation": "", "tables_used": []}
@@ -185,11 +185,32 @@ class OpenAIGateway(ILLMGateway):
         return await self.complete(prompt, system_prompt=system)
 
     @staticmethod
+    def _strip_code_fence(text: str) -> str:
+        """Remove markdown code fences (```json ... ```, etc.) from LLM output."""
+        stripped = text.strip()
+        if stripped.startswith("```"):
+            first_newline = stripped.index("\n") if "\n" in stripped else len(stripped)
+            stripped = stripped[first_newline + 1 :]
+            if stripped.endswith("```"):
+                stripped = stripped[:-3]
+            return stripped.strip()
+        return stripped
+
+    @staticmethod
     def _extract_sql_from_text(text: str) -> str:
+        text = text.strip()
         if "```sql" in text:
             parts = text.split("```sql")
             if len(parts) > 1:
                 return parts[1].split("```")[0].strip()
+        if "```json" in text:
+            inner = text.split("```json")[1].split("```")[0].strip()
+            try:
+                data = json.loads(inner)
+                if isinstance(data, dict) and "sql" in data:
+                    return data["sql"]
+            except (json.JSONDecodeError, KeyError):
+                pass
         if "```" in text:
             parts = text.split("```")
             if len(parts) > 1:

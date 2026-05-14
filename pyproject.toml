@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-openai = ["openai>=1.0", "instructor>=1.0"]
+openai = ["openai>=1.0", "instructor>=1.0", "eval_type_backport>=0.2; python_version < '3.10'"]
 postgres = ["asyncpg>=0.29"]
 supabase = ["supabase>=2.0"]
 pgvector = ["openai>=1.0"]

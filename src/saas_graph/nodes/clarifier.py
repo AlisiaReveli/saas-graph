@@ -20,8 +20,10 @@ Respond with one of:
 2. A clarification question if the query is too ambiguous.
 
 Rules:
-- If the question mentions a specific metric, entity, and time period, it is CLEAR.
-- If the question is vague (e.g. "show me the data"), ask what specifically they want to see.
+- Prefer answering over asking. Most questions are CLEAR.
+- If no time period is mentioned, assume all available data — do NOT ask for a time period.
+- If no specific entity is mentioned, assume the entire dataset — do NOT ask which entity.
+- Only ask for clarification when the question is genuinely too vague to map to any table or metric (e.g. "show me the data", "help me").
 - If the question references a previous conversation, try to resolve it from context.
 - Keep clarification questions concise and specific.
 """
