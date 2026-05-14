@@ -1,5 +1,5 @@
 ## Demo
-<video src="demo.mp4" poster="demo-thumbnail.png" controls width="600"></video>
+![saas-graph demo](demo.gif)
 
 
 # saas-graph
