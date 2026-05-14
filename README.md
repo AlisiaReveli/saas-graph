@@ -1,3 +1,7 @@
+## Demo
+![saas-graph demo](demo.gif)
+
+
 # saas-graph
 
 **Connect your database. Get an AI analyst. Ship in a day.**
