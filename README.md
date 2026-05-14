@@ -10,55 +10,99 @@ A Python framework for SaaS companies that want to add a natural-language analyt
 pip install saas-graph[openai,postgres,server]
 ```
 
-### Option 1: CLI (fastest)
+### 1. Start a database
 
 ```bash
-# Scaffold a project
-saas-graph init my-analytics
-
-# Auto-discover your database schema
-saas-graph scan postgres://user:pass@localhost/mydb
-
-# Start the server
-export OPENAI_API_KEY=sk-...
-saas-graph serve
+cd examples/ecommerce
+docker compose up -d
 ```
 
-### Option 2: Python API
+This starts a local PostgreSQL with sample e-commerce data: 50 products, 200 customers, 500 orders, and ~1,500 order items.
+
+### 2. Set your environment
+
+```bash
+export OPENAI_API_KEY=sk-...
+export DATABASE_URL=postgresql://ecommerce:ecommerce@localhost:5432/ecommerce
+```
+
+### 3. Run the example
 
 ```python
 import asyncio
+import os
+
 from saas_graph import NLQPipeline, DomainConfig
 from saas_graph.contrib.openai import OpenAIGateway
+from saas_graph.contrib.postgres import PostgresExecutor
+
 
 async def main():
+    executor = PostgresExecutor(os.environ["DATABASE_URL"])
+
     pipeline = NLQPipeline(
-        llm=OpenAIGateway(api_key="sk-..."),
+        llm=OpenAIGateway(api_key=os.environ["OPENAI_API_KEY"]),
+        executor=executor,
         domain=DomainConfig(
-            name="healthcare",
+            name="ecommerce",
+            description="E-commerce platform with products, orders, and customers",
             schema_path="schema_context.yaml",
+            column_display_names={
+                "total_amount": "Total ($)",
+                "line_total": "Line Total ($)",
+                "price": "Price ($)",
+                "revenue": "Revenue ($)",
+                "lifetime_value": "LTV ($)",
+            },
         ),
     )
 
-    result = await pipeline.query("How many patients were admitted last month?")
+    result = await pipeline.query("What are my top 10 products by revenue this quarter?")
     print(result.response)
     print(result.sql)
+
+    await executor.close()
 
 asyncio.run(main())
 ```
 
-### Option 3: FastAPI Plugin
+Or run the example directly:
+
+```bash
+cd examples/ecommerce
+python main.py
+```
+
+### Example output
+
+```
+| Rank | Product Name                 | Total Revenue |
+|------|------------------------------|---------------|
+| 1    | 27" 4K Monitor               | $4,949.89     |
+| 2    | Adjustable Dumbbell Pair     | $2,999.80     |
+| 3    | Running Sneakers             | $2,759.77     |
+| 4    | Noise Cancelling Earbuds     | $2,549.83     |
+| 5    | Smart Watch Fitness Tracker  | $2,199.89     |
+| ...  | ...                          | ...           |
+```
+
+### 4. FastAPI server
 
 ```python
 from fastapi import FastAPI
 from saas_graph import NLQPipeline, DomainConfig
 from saas_graph.contrib.openai import OpenAIGateway
+from saas_graph.contrib.postgres import PostgresExecutor
 from saas_graph.server import create_router
 
 app = FastAPI()
 pipeline = NLQPipeline(
     llm=OpenAIGateway(api_key="sk-..."),
-    domain=DomainConfig(schema_path="schema_context.yaml"),
+    executor=PostgresExecutor("postgresql://ecommerce:ecommerce@localhost:5432/ecommerce"),
+    domain=DomainConfig(
+        name="ecommerce",
+        schema_path="schema_context.yaml",
+    ),
 )
 app.include_router(create_router(pipeline), prefix="/api")
 ```
@@ -108,77 +152,56 @@ User Question
 
 Each node is a standalone async callable. The pipeline runs as a [LangGraph](https://github.com/langchain-ai/langgraph) state graph — or falls back to a pure-Python executor when LangGraph isn't installed.
 
-## What Makes This Different
-
-| Feature | Vanna.ai | Wren AI | **saas-graph** |
-|---------|----------|---------|----------------|
-| Multi-tenant isolation | No | No | **Yes** |
-| Clarification loop | No | No | **Yes** |
-| Golden query cache | Train on pairs | No | **Hybrid vector+keyword** |
-| Retry with error feedback | No | No | **Up to 5 retries** |
-| Schema-aware RAG | Basic | Semantic layer | **Embedding search on tables, columns, joins, rules** |
-| Streaming thinking UX | No | No | **SSE events per stage** |
-| Business rules injection | No | No | **YAML-defined** |
-| Drop-in FastAPI server | No | Docker only | **`create_router()` or CLI** |
-
 ## Schema Context
 
 Describe your database in `schema_context.yaml`:
 
 ```yaml
 tables:
-  patients:
-    description: "Patient records"
+  products:
+    description: "Product catalog"
     columns:
-      patient_id: { type: int, description: "Unique ID" }
-      name: { type: text, description: "Full name" }
-      ward: { type: text, description: "Ward (A, B, ICU, ER)" }
-      admitted_at: { type: timestamp, description: "Admission date" }
-    aliases:
-      - { name: "ICU patients", filter: "ward = 'ICU'" }
+      product_id: { type: integer, description: "Unique product ID" }
+      name: { type: text, description: "Product name" }
+      category: { type: text, description: "Product category" }
+      price: { type: numeric, description: "Current price in dollars" }
+
+  orders:
+    description: "Customer orders"
+    columns:
+      order_id: { type: integer, description: "Unique order ID" }
+      customer_id: { type: integer, description: "FK to customers" }
+      order_date: { type: timestamp, description: "When the order was placed" }
+      status: { type: text, description: "pending, shipped, delivered, returned" }
+      total_amount: { type: numeric, description: "Order total in dollars" }
     joins:
-      - { to: prescriptions, on: "patient_id = patient_id", type: LEFT }
+      - { to: customers, on: "customer_id = customer_id", type: LEFT }
 
 business_rules:
-  - name: exclude_test
-    trigger_terms: [patients]
-    sql_condition: "patient_type != 'TEST'"
-    description: "Exclude test records"
+  - name: exclude_cancelled
+    trigger_terms: [orders, revenue, sales]
+    sql_condition: "status != 'cancelled'"
+    description: "Exclude cancelled orders from revenue/sales metrics by default"
 
 golden_queries:
-  - name: monthly_admissions
-    question: "How many patients were admitted last month?"
-    sql: "SELECT COUNT(*) FROM patients WHERE ..."
-    tables: [patients]
+  - name: top_products_by_revenue
+    question: "What are the top selling products by revenue?"
+    sql: |
+      SELECT p.name, SUM(oi.line_total) as revenue
+      FROM order_items oi
+      JOIN products p ON oi.product_id = p.product_id
+      JOIN orders o ON oi.order_id = o.order_id
+      WHERE o.status != 'cancelled'
+      GROUP BY p.name
+      ORDER BY revenue DESC
+      LIMIT 10
+    tables: [order_items, products, orders]
 ```
 
 Auto-generate the initial YAML from any PostgreSQL database:
 
 ```bash
 saas-graph scan postgres://user:pass@host/db
-```
-
-## Domain Configuration
-
-Customize the pipeline for your domain without writing node code:
-
-```python
-DomainConfig(
-    name="healthcare",
-    description="Hospital management system",
-    schema_path="schema_context.yaml",
-    column_display_names={
-        "patient_id": "Patient ID",
-        "admitted_at": "Admission Date",
-        "amount": "Amount ($)",
-    },
-    clarification_prompt="You are a healthcare analytics assistant...",
-    sql_instructions=[
-        "Always exclude test patients",
-        "Dates are in UTC",
-    ],
-    tenant_id_column="hospital_id",
-)
 ```
 
 ## Swappable Components
@@ -188,7 +211,7 @@ Every infrastructure component is behind an abstract interface:
 | Component | Interface | Built-in Adapters |
 |-----------|-----------|-------------------|
 | LLM | `ILLMGateway` | `OpenAIGateway` |
-| Database | `IQueryExecutor` | (bring your own) |
+| Database | `IQueryExecutor` | `PostgresExecutor` |
 | Embeddings | `IEmbeddingService` | (bring your own) |
 | Schema | `ISchemaContextLoader` | `YAMLSchemaLoader` |
 | Knowledge | `IKnowledgeRepository` | (bring your own) |
@@ -206,16 +229,11 @@ pip install saas-graph
 pip install saas-graph[openai,postgres]
 
 # With FastAPI server
-pip install saas-graph[openai,server]
+pip install saas-graph[openai,postgres,server]
 
 # Everything
 pip install saas-graph[all]
 ```
-
-## Examples
-
-- [`examples/healthcare/`](examples/healthcare/) — Hospital analytics assistant
-- [`examples/ecommerce/`](examples/ecommerce/) — E-commerce analytics assistant
 
 ## License
 
