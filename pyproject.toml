@@ -7,9 +7,9 @@ name = "saas-graph"
 version = "0.1.0"
 description = "AI analytics assistant framework — connect your database, get natural language querying"
 readme = "README.md"
-license = "Apache-2.0"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.9"
-authors = [{ name = "Alisia Reveli" }]
+authors = [{ name = "Alisia Reveli", email = "alisjareveli@gmail.com" }]
 keywords = ["ai", "analytics", "text-to-sql", "rag", "llm", "saas", "multi-tenant"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -49,16 +49,19 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/alisia-reveli/saas-graph"
-Documentation = "https://github.com/alisia-reveli/saas-graph#readme"
-Repository = "https://github.com/alisia-reveli/saas-graph"
-Issues = "https://github.com/alisia-reveli/saas-graph/issues"
+Homepage = "https://github.com/AlisiaReveli/saas-graph"
+Documentation = "https://github.com/AlisiaReveli/saas-graph#readme"
+Repository = "https://github.com/AlisiaReveli/saas-graph"
+Issues = "https://github.com/AlisiaReveli/saas-graph/issues"
 
 [project.scripts]
 saas-graph = "saas_graph.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/saas_graph"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["examples/*/seed.sql", "examples/*/docker-compose.yml"]
 
 [tool.ruff]
 target-version = "py39"
