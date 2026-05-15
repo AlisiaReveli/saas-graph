@@ -1,0 +1,77 @@
+tables:
+  products:
+    description: "Product catalog — each document represents a unique SKU"
+    columns:
+      _id: { type: ObjectId, description: "Unique product ID" }
+      name: { type: string, description: "Product name" }
+      sku: { type: string, description: "Stock keeping unit" }
+      category: { type: string, description: "Product category" }
+      unit_cost: { type: number, description: "Cost per unit in dollars" }
+      reorder_point: { type: integer, description: "Minimum stock before reorder" }
+      is_active: { type: boolean, description: "Whether product is active" }
+
+  warehouses:
+    description: "Warehouse locations"
+    columns:
+      _id: { type: ObjectId, description: "Unique warehouse ID" }
+      name: { type: string, description: "Warehouse name" }
+      city: { type: string, description: "City" }
+      state: { type: string, description: "State code" }
+      capacity: { type: integer, description: "Maximum storage capacity in units" }
+
+  stock:
+    description: "Current stock level per product per warehouse"
+    columns:
+      _id: { type: ObjectId, description: "Unique stock record ID" }
+      product_id: { type: ObjectId, description: "Reference to products" }
+      warehouse_id: { type: ObjectId, description: "Reference to warehouses" }
+      quantity: { type: integer, description: "Units currently in stock" }
+      last_updated: { type: date, description: "Last inventory update timestamp" }
+    joins:
+      - { to: products, on: "product_id = _id", type: LEFT }
+      - { to: warehouses, on: "warehouse_id = _id", type: LEFT }
+
+  movements:
+    description: "Stock movements — inbound (receiving), outbound (shipping), transfer"
+    columns:
+      _id: { type: ObjectId, description: "Unique movement ID" }
+      product_id: { type: ObjectId, description: "Reference to products" }
+      warehouse_id: { type: ObjectId, description: "Reference to warehouses" }
+      type: { type: string, description: "inbound, outbound, or transfer" }
+      quantity: { type: integer, description: "Number of units moved" }
+      reference: { type: string, description: "PO number or shipment reference" }
+      created_at: { type: date, description: "When the movement occurred" }
+    joins:
+      - { to: products, on: "product_id = _id", type: LEFT }
+      - { to: warehouses, on: "warehouse_id = _id", type: LEFT }
+
+business_rules:
+  - name: active_products_only
+    trigger_terms: [stock, inventory, products]
+    sql_condition: "is_active == true"
+    description: "Only include active products in stock and inventory reports"
+
+golden_queries:
+  - name: total_stock_by_warehouse
+    question: "What is the total stock in each warehouse?"
+    sql: |
+      {"collection": "stock", "pipeline": [
+        {"$lookup": {"from": "warehouses", "localField": "warehouse_id", "foreignField": "_id", "as": "warehouse"}},
+        {"$unwind": "$warehouse"},
+        {"$group": {"_id": "$warehouse.name", "total_units": {"$sum": "$quantity"}}},
+        {"$sort": {"total_units": -1}}
+      ]}
+    tables: [stock, warehouses]
+
+  - name: top_products_by_value
+    question: "What are the top products by total inventory value?"
+    sql: |
+      {"collection": "stock", "pipeline": [
+        {"$lookup": {"from": "products", "localField": "product_id", "foreignField": "_id", "as": "product"}},
+        {"$unwind": "$product"},
+        {"$project": {"product_name": "$product.name", "total_value": {"$multiply": ["$quantity", "$product.unit_cost"]}}},
+        {"$group": {"_id": "$product_name", "total_value": {"$sum": "$total_value"}}},
+        {"$sort": {"total_value": -1}},
+        {"$limit": 10}
+      ]}
+    tables: [stock, products]

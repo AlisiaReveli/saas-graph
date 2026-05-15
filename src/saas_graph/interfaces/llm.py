@@ -28,8 +28,14 @@ class ILLMGateway(ABC):
         previous_sql: Optional[str] = None,
         attempt_number: int = 1,
         max_attempts: int = 5,
+        database_type: str = "postgres",
     ) -> SQLSpec:
-        """Generate SQL from a natural language query and schema context."""
+        """Generate a database query from a natural language query and schema context.
+
+        When *database_type* is ``"mongodb"``, the returned :pyclass:`SQLSpec.sql`
+        field should contain a JSON-encoded MongoDB aggregation pipeline with
+        ``collection`` and ``pipeline`` keys.
+        """
         ...
 
     @abstractmethod

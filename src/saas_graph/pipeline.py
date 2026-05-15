@@ -167,6 +167,7 @@ class NLQPipeline:
             llm=self.llm,
             max_retries=nc.max_sql_retries,
             extra_instructions=self.domain.sql_instructions,
+            database_type=nc.database_type,
         )
 
         from .contrib.memory import InMemoryCache as _FallbackCache

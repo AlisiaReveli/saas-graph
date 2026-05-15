@@ -32,10 +32,12 @@ class SQLGeneratorNode:
         llm: ILLMGateway,
         max_retries: int = 5,
         extra_instructions: Optional[List[str]] = None,
+        database_type: str = "postgres",
     ) -> None:
         self.llm = llm
         self.max_retries = max_retries
         self.extra_instructions = extra_instructions or []
+        self.database_type = database_type
 
     async def __call__(self, state: AgentState) -> Dict[str, Any]:
         user_query = _get(state, "user_query", "")
@@ -44,11 +46,12 @@ class SQLGeneratorNode:
         query_plan: Optional[QueryPlan] = _get(state, "query_plan")
         retry_count = _get(state, "retry_count", 0)
         validation_errors = _get(state, "validation_errors", [])
+        previous_spec = _get(state, "sql_spec")
 
         if retry_count >= self.max_retries:
             logger.error("Max retries (%d) exceeded", self.max_retries)
             return {
-                "error": f"Failed to generate valid SQL after {self.max_retries} attempts",
+                "error": f"Failed to generate valid query after {self.max_retries} attempts",
                 "current_node": "generate_sql",
                 "max_retries": self.max_retries,
             }
@@ -68,8 +71,13 @@ class SQLGeneratorNode:
 
         augmented_query = user_query
         if validation_errors:
-            error_ctx = "\n\nPREVIOUS ATTEMPT FAILED:\n" + "\n".join(f"- {e}" for e in validation_errors)
+            error_ctx = (
+                "\n\nPREVIOUS ATTEMPT FAILED:\n"
+                + "\n".join(f"- {e}" for e in validation_errors)
+            )
             augmented_query = user_query + error_ctx
+
+        previous_sql = previous_spec.sql if previous_spec and validation_errors else None
 
         try:
             sql_spec = await self.llm.generate_sql(
@@ -78,8 +86,10 @@ class SQLGeneratorNode:
                 schema_context=schema_context,
                 query_plan=query_plan,
                 validation_errors=validation_errors if validation_errors else None,
+                previous_sql=previous_sql,
                 attempt_number=attempt,
                 max_attempts=self.max_retries,
+                database_type=self.database_type,
             )
 
             logger.info("SQL generated (attempt %d): %s", attempt, sql_spec.sql[:200])

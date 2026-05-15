@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
+
+
+class DatabaseType(str, Enum):
+    POSTGRES = "postgres"
+    MONGODB = "mongodb"
 
 
 @dataclass
 class NodeConfig:
     """Fine-grained configuration for individual pipeline nodes."""
 
+    database_type: Literal["postgres", "mongodb"] = "postgres"
     max_sql_retries: int = 5
     cache_ttl_seconds: int = 300
     execution_timeout_seconds: float = 30.0

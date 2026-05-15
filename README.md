@@ -6,7 +6,9 @@
 
 **Connect your database. Get an AI analyst. Ship in a day.**
 
-A Python framework for SaaS companies that want to add a natural-language analytics assistant to their product. You provide your database connection and a schema description — saas-graph handles query understanding, schema-aware retrieval, SQL generation with retry loops, result formatting, and real-time streaming.
+A Python framework for SaaS companies that want to add a natural-language analytics assistant to their product. You provide your database connection and a schema description — saas-graph handles query understanding, schema-aware retrieval, query generation with retry loops, result formatting, and real-time streaming.
+
+Supports **PostgreSQL** and **MongoDB** out of the box — switch between them with a single config flag.
 
 ## Quick Start
 
@@ -90,6 +92,45 @@ python main.py
 | ...  | ...                          | ...           |
 ```
 
+### Using MongoDB
+
+saas-graph works with MongoDB the same way — swap the executor and set `database_type` in the config:
+
+```bash
+pip install saas-graph[openai,mongodb]
+```
+
+```python
+from saas_graph import NLQPipeline, DomainConfig, NodeConfig
+from saas_graph.contrib.mongodb import MongoDBExecutor
+from saas_graph.contrib.openai import OpenAIGateway
+
+pipeline = NLQPipeline(
+    llm=OpenAIGateway(api_key=os.environ["OPENAI_API_KEY"]),
+    executor=MongoDBExecutor(
+        connection_uri="mongodb://localhost:27017",
+        database="inventory",
+    ),
+    node_config=NodeConfig(database_type="mongodb"),
+    domain=DomainConfig(
+        name="inventory",
+        schema_path="schema_context.yaml",
+    ),
+)
+
+result = await pipeline.query("Which warehouse has the most total stock?")
+```
+
+When `database_type="mongodb"`, the LLM generates MongoDB aggregation pipelines instead of SQL. The schema YAML format stays the same — just describe your collections as tables with their fields and relationships.
+
+A full working example with Docker, seed data, and sample queries:
+
+```bash
+cd examples/inventory
+docker compose up -d
+python main.py
+```
+
 ### 4. FastAPI server
 
 ```python
@@ -134,14 +175,14 @@ User Question
                       │                   │
                       │                   ▼
                       │           ┌──────────────┐
-                      │           │SQL Generator │◀─── retry with
+                      │           │Query Generator│◀─── retry with
                       │           │  (LLM-based) │     error feedback
                       │           └──────────────┘
                       │                   │
                       │                   ▼
                       │           ┌──────────────┐
                       │           │  Executor    │
-                      │           │  (database)  │
+                      │           │ PG / Mongo   │
                       │           └──────────────┘
                       │                   │
                       ▼                   ▼
@@ -215,7 +256,7 @@ Every infrastructure component is behind an abstract interface:
 | Component | Interface | Built-in Adapters |
 |-----------|-----------|-------------------|
 | LLM | `ILLMGateway` | `OpenAIGateway` |
-| Database | `IQueryExecutor` | `PostgresExecutor` |
+| Database | `IQueryExecutor` | `PostgresExecutor`, `MongoDBExecutor` |
 | Embeddings | `IEmbeddingService` | (bring your own) |
 | Schema | `ISchemaContextLoader` | `YAMLSchemaLoader` |
 | Knowledge | `IKnowledgeRepository` | (bring your own) |
@@ -231,6 +272,9 @@ pip install saas-graph
 
 # With OpenAI + PostgreSQL
 pip install saas-graph[openai,postgres]
+
+# With OpenAI + MongoDB
+pip install saas-graph[openai,mongodb]
 
 # With FastAPI server
 pip install saas-graph[openai,postgres,server]

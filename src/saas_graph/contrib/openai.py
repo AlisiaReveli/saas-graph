@@ -51,31 +51,88 @@ class OpenAIGateway(ILLMGateway):
         previous_sql: Optional[str] = None,
         attempt_number: int = 1,
         max_attempts: int = 5,
+        database_type: str = "postgres",
     ) -> SQLSpec:
-        system = (
-            "You are an expert SQL generator. Generate a single valid PostgreSQL query.\n"
-            "Return ONLY a JSON object with keys: sql, explanation, tables_used."
-        )
+        is_mongo = database_type == "mongodb"
+
+        if is_mongo:
+            system = (
+                "You are an expert MongoDB query generator. Generate a valid MongoDB "
+                "aggregation pipeline.\n"
+                "Return ONLY a JSON object with keys: collection, pipeline, explanation, "
+                "tables_used.\n"
+                '- "collection": the target collection name\n'
+                '- "pipeline": an array of aggregation stages '
+                "(e.g. $match, $group, $sort, $project, $lookup, $unwind, $limit)\n"
+                '- "explanation": brief description of what the query does\n'
+                '- "tables_used": list of collection names referenced\n\n'
+                "CRITICAL RULES:\n"
+                "- In $group, the grouping key MUST be called '_id', never 'id'.\n"
+                "- Every non-_id field in $group MUST use an accumulator "
+                "($sum, $avg, $first, $last, $min, $max, $push, etc.).\n"
+                "- After $group, only _id and your accumulators exist — "
+                "to access original fields, use $first in the $group stage.\n"
+                "- Use $lookup for joins. Place $lookup BEFORE $group when you need "
+                "joined fields inside the aggregation.\n"
+                "- For $lookup: localField/foreignField must match the actual field names "
+                "in each collection (e.g. localField: 'product_id', "
+                "foreignField: '_id').\n"
+                "- DATE FILTERS: In $match, use LITERAL ISO-8601 date strings "
+                'for comparisons (e.g. {"$gte": "2025-04-01T00:00:00Z"}). '
+                "Do NOT use aggregation expressions like $dateSubtract, "
+                "$dateFromParts, or $$NOW inside $match — those only work "
+                "inside $expr. Compute the actual dates yourself and use "
+                "literal strings.\n"
+                "- Do NOT use SQL syntax. This is MongoDB aggregation only.\n"
+            )
+        else:
+            system = (
+                "You are an expert SQL generator. Generate a single valid PostgreSQL query.\n"
+                "Return ONLY a JSON object with keys: sql, explanation, tables_used."
+            )
 
         parts = [f"Question: {query}"]
+        if is_mongo:
+            from datetime import date
+
+            parts.append(f"\nToday's date: {date.today().isoformat()}")
         if schema_context.tenant_context_prompt:
-            parts.append(f"\nSchema:\n{schema_context.tenant_context_prompt}")
+            label = "Collections" if is_mongo else "Schema"
+            parts.append(f"\n{label}:\n{schema_context.tenant_context_prompt}")
         if schema_context.tables:
-            parts.append("\nAvailable tables: " + ", ".join(t.table_name for t in schema_context.tables))
-        if schema_context.joins:
+            label = "Available collections" if is_mongo else "Available tables"
             parts.append(
-                "\nJoins:\n"
-                + "\n".join(f"  {j.from_table}.{j.from_column} = {j.to_table}.{j.to_column}" for j in schema_context.joins)
+                f"\n{label}: "
+                + ", ".join(t.table_name for t in schema_context.tables)
             )
+        if schema_context.joins:
+            if is_mongo:
+                parts.append(
+                    "\nRelationships (use $lookup):\n"
+                    + "\n".join(
+                        f"  {j.from_table}.{j.from_column} -> {j.to_table}.{j.to_column}"
+                        for j in schema_context.joins
+                    )
+                )
+            else:
+                parts.append(
+                    "\nJoins:\n"
+                    + "\n".join(
+                        f"  {j.from_table}.{j.from_column} = {j.to_table}.{j.to_column}"
+                        for j in schema_context.joins
+                    )
+                )
         if schema_context.golden_query:
             gq = schema_context.golden_query
-            parts.append(f"\nVerified SQL template (adapt this):\n{gq.sql}")
+            parts.append(f"\nVerified query template (adapt this):\n{gq.sql}")
         if query_plan:
             parts.append(f"\nPlan: {query_plan.plan_description}")
         if validation_errors:
-            parts.append("\nPrevious errors:\n" + "\n".join(f"- {e}" for e in validation_errors))
+            parts.append(
+                "\nPrevious errors:\n" + "\n".join(f"- {e}" for e in validation_errors)
+            )
         if previous_sql:
-            parts.append(f"\nPrevious SQL (fix this):\n{previous_sql}")
+            parts.append(f"\nPrevious query (fix this):\n{previous_sql}")
 
         prompt = "\n".join(parts)
         raw = await self.complete(prompt, system_prompt=system, temperature=0.0)
@@ -83,8 +140,23 @@ class OpenAIGateway(ILLMGateway):
         try:
             data = json.loads(self._strip_code_fence(raw))
         except json.JSONDecodeError:
-            sql = self._extract_sql_from_text(raw)
-            data = {"sql": sql, "explanation": "", "tables_used": []}
+            if is_mongo:
+                data = {"collection": "", "pipeline": [], "explanation": raw, "tables_used": []}
+            else:
+                sql = self._extract_sql_from_text(raw)
+                data = {"sql": sql, "explanation": "", "tables_used": []}
+
+        if is_mongo:
+            mongo_query = json.dumps(
+                {"collection": data.get("collection", ""), "pipeline": data.get("pipeline", [])},
+            )
+            return SQLSpec(
+                sql=mongo_query,
+                explanation=data.get("explanation", ""),
+                tables_used=data.get("tables_used", []),
+                generation_attempts=attempt_number,
+                from_golden_query=schema_context.has_golden_query(),
+            )
 
         return SQLSpec(
             sql=data.get("sql", raw),
